@@ -14,7 +14,7 @@
 
 
 """Prepare initial conditions for simulations."""
-from typing import Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -100,3 +100,28 @@ def filtered_velocity_field(
   # velocity field. This ensures that it is divergence-free and achieves the
   # specified maximum velocity.
   return funcutils.repeated(project_and_normalize, iterations)(velocity)
+
+def initial_v_field(
+    rng_key: grids.Array,
+    grid: grids.Grid,
+    velocity: Optional[Callable[..., Array]],
+    velocity_bc: Optional[BoundaryConditions] = None,
+) -> GridVariableVector:
+  """Create a random temperature field.
+  Args:
+    rng_key: key for seeding the random initial temperature field.
+    grid: the grid on which the temperature field is defined.
+    """
+  if velocity_bc is None:
+    velocity_bc = (
+        boundaries.periodic_boundary_conditions(grid.ndim),) * grid.ndim
+    
+  if callable(velocity[0]):
+    v = tuple(
+        grids.GridVariable(grid.eval_on_mesh(u_fn, grid.cell_center), bc) 
+        for u_fn, bc in zip(velocity, velocity_bc))
+  else:
+    v = tuple(
+        grids.GridVariable(grids.GridArray(u, grid.cell_center, grid), bc)
+        for u, bc in zip(velocity, velocity_bc))
+  return v
