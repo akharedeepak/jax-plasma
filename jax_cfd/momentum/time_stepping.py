@@ -45,7 +45,7 @@ def state_2_primitive(state, properties):
   return primitive
 
 
-class ContinuityODE:
+class MomentumODE:
   """Spatially discretized version of Navier-Stokes.
 
   The equation is given by:
@@ -62,6 +62,16 @@ class ContinuityODE:
     """Explicitly evaluate the ODE."""
     raise NotImplementedError
 
+  def rhov_2_v(self, rhov, state):
+    """convert rhov to v."""
+    v = tuple(grids.GridVariable(rhou.array / state['rho'].array, (u.bc)) for rhou, u in zip(rhov, state['v']))
+    return v
+  
+  def v_2_rhov(self, v, state):
+    """Convert v to rhov."""
+    rhov = tuple(grids.GridVariable(state['rho'].array * u.array, u.bc) for u in v)
+    return rhov
+
 
 
 @dataclasses.dataclass
@@ -74,11 +84,10 @@ class ButcherTableau:
     if len(self.a) + 1 != len(self.b):
       raise ValueError("inconsistent Butcher tableau")
 
-
-def continuity_eq_rk(
+def momentum_eq_rk(
     state_var: str,
     tableau: ButcherTableau,
-    equation: ContinuityODE,
+    equation: MomentumODE,
     time_step: float,
 ) -> TimeStepFn:
   """Create a forward Runge-Kutta time-stepper for incompressible Navier-Stokes.
@@ -108,32 +117,36 @@ def continuity_eq_rk(
   # @tree_math.wrap
   def step_fn(state):
     # state = state.tree
-    n0 = tree_math.Vector(state[state_var])
+    v0 = state[state_var]
+    rhov0 = tree_math.Vector(equation.v_2_rhov(v0, state))
     state = tree_math.Vector(state)
+    v0 = tree_math.Vector(v0)
 
-    n = [None] * num_steps
+    rhov = [None] * num_steps
     k = [None] * num_steps
 
-    n[0] = n0
-    k[0] = F(n0, state)
+    rhov[0] = rhov0
+    k[0] = F(rhov0, v0, state)
 
     for i in range(1, num_steps):
-      n[i] = n0 + dt * sum(a[i-1][j] * k[j] for j in range(i) if a[i-1][j])
-      k[i] = F(n[i], state)
+      rhov[i] = rhov0 + dt * sum(a[i-1][j] * k[j] for j in range(i) if a[i-1][j])
+      vi = equation.rhov_2_v(rhov[i].tree, state.tree)
+      k[i] = F(rhov[i], vi, state)
 
-    n_final = n0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
+    rhov_final = rhov0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
     state = state.tree
-    state[state_var] = n_final.tree
+    v_final = equation.rhov_2_v(rhov_final.tree, state)
+    state[state_var] = v_final
     return state
 
   return step_fn
 
 
 def forward_euler(
-    equation: ContinuityODE, state_var: str, time_step: float,
+    equation: MomentumODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
-      continuity_eq_rk(
+      momentum_eq_rk(
           state_var,
           ButcherTableau(a=[], b=[1]),
           equation,
@@ -143,10 +156,10 @@ def forward_euler(
 
 
 def midpoint_rk2(
-    equation: ContinuityODE, state_var: str, time_step: float,
+    equation: MomentumODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
-      continuity_eq_rk(
+      momentum_eq_rk(
           state_var,
           ButcherTableau(a=[[1/2]], b=[0, 1]),
           equation=equation,
@@ -157,10 +170,10 @@ def midpoint_rk2(
 
 
 def heun_rk2(
-    equation: ContinuityODE, state_var: str, time_step: float,
+    equation: MomentumODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
-      continuity_eq_rk(
+      momentum_eq_rk(
           state_var,
           ButcherTableau(a=[[1]], b=[1/2, 1/2]),
           equation=equation,
@@ -171,10 +184,10 @@ def heun_rk2(
 
 
 def classic_rk4(
-    equation: ContinuityODE, state_var: str, time_step: float,
+    equation: MomentumODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
-      continuity_eq_rk(
+      momentum_eq_rk(
           state_var,
           ButcherTableau(a=[[1/2], [0, 1/2], [0, 0, 1]],
                          b=[1/6, 1/3, 1/3, 1/6]),

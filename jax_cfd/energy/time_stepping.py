@@ -45,7 +45,7 @@ def state_2_primitive(state, properties):
   return primitive
 
 
-class ExplicitNavierStokesODE:
+class EnergyODE:
   """Spatially discretized version of Navier-Stokes.
 
   The equation is given by:
@@ -54,17 +54,23 @@ class ExplicitNavierStokesODE:
     0 = incompressibility_constraint(u)
   """
 
-  def __init__(self, explicit_terms, pressure_projection):
+  def __init__(self, explicit_terms, properties):
     self.explicit_terms = explicit_terms
-    self.pressure_projection = pressure_projection
+    self.properties = properties
 
   def explicit_terms(self, state):
     """Explicitly evaluate the ODE."""
     raise NotImplementedError
 
-  def pressure_projection(self, state):
-    """Enforce the incompressibility constraint."""
-    raise NotImplementedError
+  def rhoE_2_T(self, rhoE, state):
+    """convert rhoE to T."""
+    T = grids.GridVariable(rhoE.array / (state['rho'].array * self.properties['Cv']), (state['T'].bc))
+    return T
+  
+  def T_2_rhoE(self, T, state):
+    """Convert T to rhoE."""
+    rhoE = grids.GridVariable(state['rho'].array * self.properties['Cv'] * T.array, T.bc)
+    return rhoE
 
 
 @dataclasses.dataclass
@@ -79,10 +85,10 @@ class ButcherTableau:
 
 
 def energy_eq_rk(
+    state_var: str,
     tableau: ButcherTableau,
-    equation: ExplicitNavierStokesODE,
+    equation: EnergyODE,
     time_step: float,
-    properties: dict = None,
 ) -> TimeStepFn:
   """Create a forward Runge-Kutta time-stepper for incompressible Navier-Stokes.
 
@@ -101,7 +107,8 @@ def energy_eq_rk(
   """
   # pylint: disable=invalid-name
   dt = time_step
-  F = tree_math.unwrap(equation)
+  F = tree_math.unwrap(equation.explicit_terms)
+  properties = equation.properties
 
   a = tableau.a
   b = tableau.b
@@ -110,48 +117,50 @@ def energy_eq_rk(
   # @tree_math.wrap
   def step_fn(state):
     # state = state.tree
-    rho0, v0, T0 = state['rho'], state['v'], state['T']
-    rhoE0 = tree_math.Vector(grids.GridVariable(rho0.array * properties['Cv'] * T0.array, T0.bc)) 
-    T0, v0 = (tree_math.Vector(vi) for vi in (T0, v0))
+    T0 = state[state_var]
+    rhoE0 = tree_math.Vector(equation.T_2_rhoE(T0, state)) 
+    state = tree_math.Vector(state)
+    T0 = tree_math.Vector(T0)
 
     rhoE = [None] * num_steps
     k = [None] * num_steps
 
     rhoE[0] = rhoE0
-    k[0] = F(rhoE0, T0, v0)
+    k[0] = F(rhoE0, T0, state)
 
     for i in range(1, num_steps):
       rhoE[i] = rhoE0 + dt * sum(a[i-1][j] * k[j] for j in range(i) if a[i-1][j])
-      Ti = rhoE[i] / (rho0.data * properties['Cv'])
-      k[i] = F(rhoE[i], Ti, v0)
+      Ti = equation.rhoE_2_T(rhoE[i].tree, state.tree)
+      k[i] = F(rhoE[i], Ti, state)
 
     rhoE_final = rhoE0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
-    T_final = rhoE_final / (rho0.data * properties['Cv'])
-    state['T'] = T_final.tree
-    # state = tree_math.Vector(state)
+    state = state.tree
+    T_final = equation.rhoE_2_T(rhoE_final.tree, state)
+    state[state_var] = T_final
     return state
 
   return step_fn
 
 
 def forward_euler(
-    equation: ExplicitNavierStokesODE, time_step: float, properties: dict = None,
+    equation: EnergyODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
       energy_eq_rk(
+          state_var,
           ButcherTableau(a=[], b=[1]),
           equation,
-          time_step,
-          properties=properties),
+          time_step,),
       name="forward_euler",
   )
 
 
 def midpoint_rk2(
-    equation: ExplicitNavierStokesODE, time_step: float,
+    equation: EnergyODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
       energy_eq_rk(
+          state_var,
           ButcherTableau(a=[[1/2]], b=[0, 1]),
           equation=equation,
           time_step=time_step,
@@ -161,10 +170,11 @@ def midpoint_rk2(
 
 
 def heun_rk2(
-    equation: ExplicitNavierStokesODE, time_step: float,
+    equation: EnergyODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
       energy_eq_rk(
+          state_var,
           ButcherTableau(a=[[1]], b=[1/2, 1/2]),
           equation=equation,
           time_step=time_step,
@@ -174,10 +184,11 @@ def heun_rk2(
 
 
 def classic_rk4(
-    equation: ExplicitNavierStokesODE, time_step: float,
+    equation: EnergyODE, state_var: str, time_step: float,
 ) -> TimeStepFn:
   return jax.named_call(
       energy_eq_rk(
+          state_var,
           ButcherTableau(a=[[1/2], [0, 1/2], [0, 0, 1]],
                          b=[1/6, 1/3, 1/3, 1/6]),
           equation=equation,

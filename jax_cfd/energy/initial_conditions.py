@@ -37,7 +37,7 @@ BoundaryConditions = grids.BoundaryConditions
 
 
 
-def T_field(
+def initial_T_field(
     rng_key: grids.Array,
     grid: grids.Grid,
     Temperature: Optional[Callable[..., Array]],
