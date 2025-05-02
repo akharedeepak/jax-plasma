@@ -27,7 +27,7 @@ GridVariableVector = grids.GridVariableVector
 #     tau = jax.tree_util.tree_map(
 #             lambda x, y: 2. * x * y, viscosity_sgs_tensor, s_ij_with_bc_tensor)
 
-
+# TODO CHECK if this is correct
 def stress(v: GridVariable) -> GridArray:
     '''
     Calculate the stress tensor from the velocity field.
@@ -80,8 +80,8 @@ def stress(v: GridVariable) -> GridArray:
             tuple( 
                 GridVariable(gradV[i][j] + gradV[j][i] + divV[i][j] 
                 , bc=boundaries.ConstantBoundaryConditions((('dirichlet', 'dirichlet'),('dirichlet','dirichlet')),
-                                                                ((gradV_bd[i][j][0][0]+gradV_bd[j][i][0][0]+divV_bd[i][j][0][0], gradV_bd[i][j][0][1]+gradV_bd[j][i][0][1]+divV_bd[i][j][0][1]),
-                                                                (gradV_bd[i][j][1][0]+gradV_bd[j][i][1][0]+divV_bd[i][j][1][0], gradV_bd[i][j][1][1]+gradV_bd[j][i][1][1]+divV_bd[i][j][1][1]))))
+                                                           ((gradV_bd[i][j][0][0]+gradV_bd[j][i][0][0]+divV_bd[i][j][0][0], gradV_bd[i][j][0][1]+gradV_bd[j][i][0][1]+divV_bd[i][j][0][1]),
+                                                            (gradV_bd[i][j][1][0]+gradV_bd[j][i][1][0]+divV_bd[i][j][1][0], gradV_bd[i][j][1][1]+gradV_bd[j][i][1][1]+divV_bd[i][j][1][1]))))
             for j in range(ndim))
             for i in range(ndim))
 
