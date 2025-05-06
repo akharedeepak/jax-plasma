@@ -24,27 +24,6 @@ PyTreeState = TypeVar("PyTreeState")
 TimeStepFn = Callable[[PyTreeState], PyTreeState]
 
 
-def state_2_primitive(state, properties):
-  """Convert a state to primitive variables.
-  Args:
-    state: the state to convert.
-    properties: a dictionary of properties, including Cv.
-  Returns:
-    A dictionary of primitive variables.
-  """
-  Cv = properties['Cv']
-  
-  rho, rhov, rhoE = state['rho'], state['rhov'], state['rhoE']
-  v0 = tuple(grids.GridVariable(rhou0.array / rho, bc=rhou0.bc) for rhou0 in rhov)
-  T0 = grids.GridVariable(rhoE.array / (Cv * rho), bc=rhoE.bc)
-  primitive = dict(
-    rho=rho,
-    v=v0,
-    T=T0,
-  )
-  return primitive
-
-
 class ContinuityODE:
   """Spatially discretized version of Navier-Stokes.
 
@@ -123,7 +102,7 @@ def continuity_eq_rk(
 
     n_final = n0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
     state = state.tree
-    state[state_var] = n_final.tree
+    state[state_var+'_new'] = n_final.tree
     return state
 
   return step_fn

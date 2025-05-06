@@ -19,3 +19,5 @@ import jax_cfd.collocated.diffusion
 import jax_cfd.collocated.equations
 import jax_cfd.collocated.initial_conditions
 import jax_cfd.collocated.pressure
+import jax_cfd.collocated.boundaries
+import jax_cfd.collocated.conservatives

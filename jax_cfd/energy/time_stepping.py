@@ -19,30 +19,10 @@ import jax
 import tree_math
 from jax_cfd.base import grids
 
+import jax_cfd.collocated as col
 
 PyTreeState = TypeVar("PyTreeState")
 TimeStepFn = Callable[[PyTreeState], PyTreeState]
-
-
-def state_2_primitive(state, properties):
-  """Convert a state to primitive variables.
-  Args:
-    state: the state to convert.
-    properties: a dictionary of properties, including Cv.
-  Returns:
-    A dictionary of primitive variables.
-  """
-  Cv = properties['Cv']
-  
-  rho, rhov, rhoE = state['rho'], state['rhov'], state['rhoE']
-  v0 = tuple(grids.GridVariable(rhou0.array / rho, bc=rhou0.bc) for rhou0 in rhov)
-  T0 = grids.GridVariable(rhoE.array / (Cv * rho), bc=rhoE.bc)
-  primitive = dict(
-    rho=rho,
-    v=v0,
-    T=T0,
-  )
-  return primitive
 
 
 class EnergyODE:
@@ -64,13 +44,19 @@ class EnergyODE:
 
   def rhoE_2_T(self, rhoE, state):
     """convert rhoE to T."""
-    T = grids.GridVariable(rhoE.array / (state['rho'].array * self.properties['Cv']), (state['T'].bc))
+    E = rhoE.array / state['rho'].array
+    KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
+    T = grids.GridVariable((E - KE) / self.properties['Cv'], (state['T'].bc))
     return T
   
   def T_2_rhoE(self, T, state):
     """Convert T to rhoE."""
-    rhoE = grids.GridVariable(state['rho'].array * self.properties['Cv'] * T.array, T.bc)
+    e  = self.properties['Cv'] * T.array 
+    KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
+    # TODO BC is only valide for neumann BC
+    rhoE = grids.GridVariable(state['rho'].array * (e + KE), T.bc)
     return rhoE
+    # return col.conservatives._rhoE(state['rho'], E)
 
 
 @dataclasses.dataclass
@@ -136,7 +122,7 @@ def energy_eq_rk(
     rhoE_final = rhoE0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
     state = state.tree
     T_final = equation.rhoE_2_T(rhoE_final.tree, state)
-    state[state_var] = T_final
+    state[state_var+'_new'] = T_final
     return state
 
   return step_fn

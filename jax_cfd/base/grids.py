@@ -512,12 +512,14 @@ class Grid:
   shape: Tuple[int, ...]
   step: Tuple[float, ...]
   domain: Tuple[Tuple[float, float], ...]
+  stretch: Tuple[float,...]
 
   def __init__(
       self,
       shape: Sequence[int],
       step: Optional[Union[float, Sequence[float]]] = None,
       domain: Optional[Union[float, Sequence[Tuple[float, float]]]] = None,
+      stretch: Optional[Union[float,Sequence[float]]] = None,
   ):
     """Construct a grid object."""
     shape = tuple(operator.index(s) for s in shape)
@@ -549,10 +551,14 @@ class Grid:
           (0.0, float(step_ * size)) for step_, size in zip(step, shape))
 
     object.__setattr__(self, 'domain', domain)
+    object.__setattr__(self, 'stretch', stretch)
 
-    step = tuple(
-        (upper - lower) / size for (lower, upper), size in zip(domain, shape))
-    object.__setattr__(self, 'step', step)
+    if stretch is None:
+      step = tuple(
+          (upper - lower) / size for (lower, upper), size in zip(domain, shape))
+      object.__setattr__(self, 'step', step)
+    else:
+      raise NotImplementedError
 
   @property
   def ndim(self) -> int:

@@ -154,7 +154,7 @@ class ConstantBoundaryConditions(BoundaryConditions):
                 # the padded values to the negative symmetric values
                 if callable(self._values[axis][np.where(width < 0, 0, -1)]):
                     bc_value = self._values[axis][np.where(
-                        width < 0, 0, -1)](u.grid, t)
+                        width < 0, 0, -1)](u, t)
                 else:
                     bc_value = self._values[axis][np.where(width < 0, 0, -1)]
                     shape = jax.lax.index_in_dim(u.data, np.where(
@@ -814,7 +814,7 @@ def get_advection_flux_bc_from_velocity_and_scalar(
     u: GridVariable, c: GridVariable,
     flux_direction: int,
     original_v: GridVariable,
-        t: dict) -> ConstantBoundaryConditions:
+    t: dict = {}) -> ConstantBoundaryConditions:
     """Returns advection flux boundary conditions for the specified velocity.
 
     Infers advection flux boundary condition in flux direction
@@ -873,16 +873,19 @@ def get_advection_flux_bc_from_velocity_and_scalar(
                         flux_bc_values_ax.append(lambda x, t: data_u*data_c)
                     else:
 
-                        if callable(u.bc._values[axis][i]):
-                            data_u = u.bc._values[axis][i]
-                            data_c = c.bc._values[axis][i]
-                            flux_bc_values_ax.append(
-                                data_u(u.grid, t)*data_c(c.grid, t))
-
+                        # if callable(u.bc._values[axis][i]):
+                        #     data_u = u.bc._values[axis][i]
+                        #     data_c = c.bc._values[axis][i]
+                        #     flux_bc_values_ax.append(
+                        #         data_u(u.grid, t)*data_c(c.grid, t))
+                        # Deepak
+                        if callable(u.bc._values[axis][i]) or callable(c.bc._values[axis][i]):
+                            data_u = u.bc._values[axis][i](u, t) if callable(u.bc._values[axis][i]) else u.bc._values[axis][i]
+                            data_c = c.bc._values[axis][i](c, t) if callable(c.bc._values[axis][i]) else c.bc._values[axis][i]
+                            flux_bc_values_ax.append(data_u * data_c)
                         else:
                             data_u = u.bc._values[axis][i]
                             data_c = c.bc._values[axis][i]
-
                             flux_bc_values_ax.append(data_u*data_c)
 
                 elif (u.bc.types[axis][i] == BCType.NEUMANN and

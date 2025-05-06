@@ -19,30 +19,10 @@ import jax
 import tree_math
 from jax_cfd.base import grids
 
+import jax_cfd.collocated as col
 
 PyTreeState = TypeVar("PyTreeState")
 TimeStepFn = Callable[[PyTreeState], PyTreeState]
-
-
-def state_2_primitive(state, properties):
-  """Convert a state to primitive variables.
-  Args:
-    state: the state to convert.
-    properties: a dictionary of properties, including Cv.
-  Returns:
-    A dictionary of primitive variables.
-  """
-  Cv = properties['Cv']
-  
-  rho, rhov, rhoE = state['rho'], state['rhov'], state['rhoE']
-  v0 = tuple(grids.GridVariable(rhou0.array / rho, bc=rhou0.bc) for rhou0 in rhov)
-  T0 = grids.GridVariable(rhoE.array / (Cv * rho), bc=rhoE.bc)
-  primitive = dict(
-    rho=rho,
-    v=v0,
-    T=T0,
-  )
-  return primitive
 
 
 class MomentumODE:
@@ -69,8 +49,7 @@ class MomentumODE:
   
   def v_2_rhov(self, v, state):
     """Convert v to rhov."""
-    rhov = tuple(grids.GridVariable(state['rho'].array * u.array, u.bc) for u in v)
-    return rhov
+    return col.conservatives._rhov(state['rho'], v)
 
 
 
@@ -136,7 +115,7 @@ def momentum_eq_rk(
     rhov_final = rhov0 + dt * sum(b[j] * k[j] for j in range(num_steps) if b[j])
     state = state.tree
     v_final = equation.rhov_2_v(rhov_final.tree, state)
-    state[state_var] = v_final
+    state[state_var+'_new'] = v_final
     return state
 
   return step_fn
