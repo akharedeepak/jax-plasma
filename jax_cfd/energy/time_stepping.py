@@ -42,21 +42,35 @@ class EnergyODE:
     """Explicitly evaluate the ODE."""
     raise NotImplementedError
 
+  # def rhoE_2_T(self, rhoE, state):
+  #   """convert rhoE to T."""
+  #   E = rhoE.array / state['rho'].array
+  #   KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
+  #   T = grids.GridVariable((E - KE) / self.properties['Cv'], (state['T'].bc))
+  #   return T
+  
+  # def T_2_rhoE(self, T, state):
+  #   """Convert T to rhoE."""
+  #   e  = self.properties['Cv'] * T.array 
+  #   KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
+  #   # TODO BC is only valide for neumann BC
+  #   rhoE = grids.GridVariable(state['rho'].array * (e + KE), T.bc)
+  #   return rhoE
+
   def rhoE_2_T(self, rhoE, state):
     """convert rhoE to T."""
     E = rhoE.array / state['rho'].array
-    KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
+    KE = 0.5*sum(u.array*u.array for u in state['v'])
     T = grids.GridVariable((E - KE) / self.properties['Cv'], (state['T'].bc))
     return T
   
   def T_2_rhoE(self, T, state):
     """Convert T to rhoE."""
-    e  = self.properties['Cv'] * T.array 
-    KE = 0.5*(state['v'][0].array**2 + state['v'][1].array**2)
-    # TODO BC is only valide for neumann BC
-    rhoE = grids.GridVariable(state['rho'].array * (e + KE), T.bc)
+    e    = grids.GridVariable(self.properties['Cv'] * T.array, (T.bc))
+    KE   = col.conservatives._KE(state['v'])
+    E    = col.conservatives._sum_GVs([e, KE])
+    rhoE = col.conservatives._s1_times_s2(state['rho'], E)
     return rhoE
-    # return col.conservatives._rhoE(state['rho'], E)
 
 
 @dataclasses.dataclass

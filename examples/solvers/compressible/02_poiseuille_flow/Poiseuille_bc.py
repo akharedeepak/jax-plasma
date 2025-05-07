@@ -32,7 +32,7 @@ key = jax.random.PRNGKey(seed)
 
 nx = 10
 ny = 100
-Lx = 1000
+Lx = 100
 Ly = 1
 
 size = (nx, ny)
@@ -63,7 +63,7 @@ properties = dict(
     R = 287.0,       # J/kg/K
     m_ion=1.0,
     diffusivity=1e-1,
-    thermal_cond=1e-6,
+    thermal_cond=0.026, # W/mK
     dyna_viscosity=1e-1,
 )
 properties['Cv'] = properties['R'] / (properties['gamma'] - 1)
@@ -98,7 +98,7 @@ rho0 = energy.initial_conditions.initial_T_field(subkey, grid, lambda x, y: (_p0
 
 # Define the initial temperature conditions.
 subkey, key = jax.random.split(key)
-T_bc = col.boundaries.ConstantBoundaryConditions((('periodic', 'periodic'),('neumann','neumann')),((T0,T0),(T0,T0)))
+T_bc = col.boundaries.ConstantBoundaryConditions((('neumann', 'neumann'),('dirichlet','dirichlet')),((0,0),(1*T0,T0)))
 T0 = energy.initial_conditions.initial_T_field(subkey, grid, T0*jnp.ones(grid.shape), T_bc)
 
 state = dict(
@@ -118,7 +118,7 @@ def convect(rho, state):
 
 # Define a step function and use it to compute a trajectory.
 density_step_fu = continuity.equations.explicit_continuity_eq(state_var='rho',dt=dt, grid=grid,
-                                                                convect=convect, properties=properties)
+                                                              convect=convect, properties=properties)
 
 ############################## Momentum equation (NS) ##############################
 
@@ -131,13 +131,15 @@ def convect(rhov, v, state):
     # flux = col.conservatives._rhovv_plus_p(rhov, state['v'], state['p'])
     # return tuple(-fd.centered_divergence(f) for f in flux)
     flux = col.conservatives._rhovv(rhov, state['v'])
-    return tuple(-fd.centered_divergence(f) -fd.central_difference(state['p'], axis) for axis, f in enumerate(flux))
+    return tuple(-fd.centered_divergence(f) 
+                 -fd.central_difference(state['p'], axis) 
+                 for axis, f in enumerate(flux))
 
 
 # TODO(deepak): add div(\tau.v) term
 def diff_stress(v):
-    tau = col.momentum_stress.stress(v)
-    return tuple(properties['dyna_viscosity']*fd.centered_divergence(taui) for taui in tau)
+    tau = col.momentum_stress.stress(v, properties['dyna_viscosity'])
+    return tuple(fd.centered_divergence(taui) for taui in tau)
 
 # TODO CHECK if this is correct
 def diffuse(rhov, v, state):
@@ -150,27 +152,26 @@ def diffuse(rhov, v, state):
 #     return collocated.finite_differences.forward_difference(state['p'])
 
 momentum_step_fu = momentum.equations.explicit_momentum_eq(state_var='v',dt=dt, grid=grid,
-                                                            convect=convect, diffuse=diffuse, properties=properties)
+                                                           convect=convect, diffuse=diffuse, properties=properties)
 
 
 ############################## energy equation ##############################
 def convect(rhoE, T, state):  # pylint: disable=function-redefined
-    flux = col.conservatives._rhoEv(rhoE, state['v'])
-    return col.advection.advect_linear(rhoE, state['v']) + col.advection.advect_linear(state['p'], state['v'])
+    flux1 = col.conservatives._rhoEv(rhoE, state['v'])
+    flux2 = col.conservatives._pv(state['p'], state['v'])
+    return (-fd.centered_divergence(flux1) 
+            -fd.centered_divergence(flux2))
 
 def diffuse(rhoE, T, state):
-    tau = col.momentum_stress.stress(state['v'])
-    tauv = tuple(
-        base.grids.GridVariable(properties['dyna_viscosity'] * sum(tauij.array*u.array for tauij, u in zip(taui, state['v'])),
-                            # TODO CHECK if bc is correct
-                            bc=col.boundaries.dirichlet_boundary_conditions( ndim=len(state['v']), bc_vals=((0,0),(0,0))) )
-        for taui in tau)
+    tau  = col.momentum_stress.stress(state['v'], properties['dyna_viscosity'])
+    tauv = col.conservatives._tauv(tau, state['v'])
     q_diff = properties['thermal_cond'] * fd.laplacian(T)
     return q_diff + fd.centered_divergence(tauv)
 
 # Define a step function and use it to compute a trajectory.
-energy_step_fu = energy.equations.explicit_energy_eq(state_var='T', dt=dt, grid=grid, 
-                                                        convect=convect, diffuse=diffuse, properties=properties)
+energy_step_fu = energy.equations.explicit_energy_eq(state_var='T', dt=dt, grid=grid,
+                                                     convect=convect, diffuse=diffuse, 
+                                                     properties=properties)
 
 def _step_fu(state):
     state['p'] = base.grids.GridVariable(state['rho'].array * properties['R'] * state['T'].array, bc=state['p'].bc)

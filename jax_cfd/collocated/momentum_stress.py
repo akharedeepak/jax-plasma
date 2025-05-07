@@ -29,7 +29,7 @@ GridVariableVector = grids.GridVariableVector
 #             lambda x, y: 2. * x * y, viscosity_sgs_tensor, s_ij_with_bc_tensor)
 
 # TODO CHECK if this is correct
-def stress(v: GridVariable) -> GridArray:
+def stress(v: GridVariable, mu: float) -> GridArray:
     '''
     Calculate the stress tensor from the velocity field.
     The stress tensor is calculated using the formula:  [\nabla v + \nabla v^T] + \frac{2}{3}(\nabla \cdot v)I
@@ -59,12 +59,12 @@ def stress(v: GridVariable) -> GridArray:
     
     tau =   tuple(
             tuple(
-                grids.GridVariable(gradV_array[i][j] + gradV_array[j][i] + (i==j)*divVi,
+                grids.GridVariable(mu*(gradV_array[i][j] + gradV_array[j][i] + (i==j)*divVi),
                                    bc=boundaries.ConstantBoundaryConditions(
                                             (('dirichlet', 'dirichlet'),('dirichlet','dirichlet')),
-                                            (  tree_math.Vector(gradV_bc[i][j])
-                                             + tree_math.Vector(gradV_bc[j][i])
-                                             + tree_math.Vector(divVi_bd)*(i==j)).tree))
+                                            (  mu*tree_math.Vector(gradV_bc[i][j])
+                                             + mu*tree_math.Vector(gradV_bc[j][i])
+                                             + mu*tree_math.Vector(divVi_bd)*(i==j)).tree))
             for j in range(ndim))
             for i in range(ndim))
     
